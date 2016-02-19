@@ -1,15 +1,6 @@
-﻿namespace FSharpOrgVideoCuration
-
-(*
-
-category (web, data-science, ...)
-level (100, 200, 300, 400)
-platform (Windows only? Cross platform?)
-format (professional production v. hand-held webcam)
-tags
-
-
-*)
+﻿#if COMPILED
+namespace FSharpOrgVideoCuration
+#endif
 
 module GetExistingContent = 
 
@@ -22,10 +13,11 @@ module GetExistingContent =
             Url : string
             Image : string
             Description : string
+            Existing : bool
             Live : bool
         }
 
-    type Category = | Web | DataScience
+    type Category = | Web | DataScience | Introduction 
     type Platform = | Windows | Mono | Linux | Mac
     type Format = | Pro | LoFi | Conference
 
@@ -35,7 +27,9 @@ module GetExistingContent =
             category : Category
             platform : Platform
             format : Format
+            free : bool
             year : string
+            tags : string[]
         }
 
     [<Literal>]
@@ -53,8 +47,6 @@ module GetExistingContent =
     let CheckLive (url : string) =
         use wc = new WebClientTimeout() 
         try
-            // wc.OpenRead(url) |> ignore
-            // wc.ResponseHeaders.["content-type"] |> ignore
             url |> wc.DownloadData |> ignore
             true
         with
@@ -62,27 +54,33 @@ module GetExistingContent =
 
 
     let GetExistingContent() =
-        for i in 1..14 do
-            let url = sprintf @"http://fsharp.org/videos/%i.html" i
-            FSharpOrg.Load(url).Html.Body().Descendants()
-            |> Seq.filter (fun e -> e.AttributeValue("class") = "thumbnail")
-            |> Seq.map (fun e -> 
-                e.AttributeValue("href"), 
-                (e.Elements() |> Seq.tryFind (fun e' -> e'.Name() = "img")))
-            |> Seq.choose (fun (u, im) ->
-                match im with
-                | Some img -> (u, img.AttributeValue("src"), img.AttributeValue("alt")) |> Some
-                | None -> None)
-            |> Seq.map (fun (u, i, d) ->
-                {
-                    Url = u
-                    Image = i
-                    Description = d
-                    Live = CheckLive u
-                }
-            )
-            |> Seq.filter (fun d -> d.Live |> not)
-            |> Seq.iter (printfn "%A")
-    ()
+        [|
+            for i in 1..14 do
+                let url = sprintf @"http://fsharp.org/videos/%i.html" i
+                let pageItems =
+                    FSharpOrg.Load(url).Html.Body().Descendants()
+                    |> Seq.filter (fun e -> e.AttributeValue("class") = "thumbnail")
+                    |> Seq.map (fun e -> 
+                        e.AttributeValue("href"), 
+                        (e.Elements() |> Seq.tryFind (fun e' -> e'.Name() = "img")))
+                    |> Seq.choose (fun (u, im) ->
+                        match im with
+                        | Some img -> (u, img.AttributeValue("src"), img.AttributeValue("alt")) |> Some
+                        | None -> None)
+                    |> Seq.map (fun (u, i, d) ->
+                        {
+                            Url = u
+                            Image = i
+                            Description = d
+                            Live = CheckLive u
+                            Existing = true
+                        }
+                    )
+                    |> Seq.map (fun d -> sprintf "%s\t%s\t%s\t%b\t%b" d.Url d.Image d.Description d.Live d.Existing)
+                    |> Array.ofSeq
+                yield pageItems
+        |]
+        |> Array.concat
 
-    do GetExistingContent()
+    let videos = GetExistingContent()
+    IO.File.WriteAllLines(__SOURCE_DIRECTORY__ + "/Data/existing.tsv", videos)
